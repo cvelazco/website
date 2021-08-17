@@ -1,0 +1,176 @@
+---
+title: ¿Cómo se calcula el factor de contagio del COVID-19?
+author: admin
+date: '2021-04-13'
+slug: factor_de_contagio
+categories:
+  - R
+tags:
+  - econometría
+  - COVID-19
+  - epidemiología
+  - datos
+subtitle: 'Un ejemplo para la primera ola en el Perú desarrollado en R'
+summary: 'El factor de contagio, o Rt, es un indicador epidemiológico importante para la toma de desiciones sobre el COVID-19. En esta publicación, presento una explicación sobre cómo se calcula utilizando R y datos del Ministerio de Salud.'
+authors: [admin]
+lastmod: '2021-04-13T23:11:42-05:00'
+featured: no
+cover: images/covid.jpg
+image: 
+  caption: 'Créditos: [United Nations COVID-19 Response](https://unsplash.com/photos/vzgn4u3A4F0)'
+  focal_point: ''
+  preview_only: no
+  placement: 3
+projects: []
+---
+
+<script src="{{< blogdown/postref >}}index.es_files/header-attrs/header-attrs.js"></script>
+<script src="{{< blogdown/postref >}}index.es_files/twitter-widget/widgets.js"></script>
+
+
+<p><strong>28 de julio del 2020</strong>. Martín Vizcarra, presidente del Perú, anunciaba el final de la cuarentena total y el inicio de una nueva etapa el 31 de julio, día que finaliría el estado de emergencia sanitaria. El argumento: el factor de contagio <span class="math inline">\(R_{t}\)</span> era menor a 1 en 16 regiones del país.</p>
+<blockquote class="twitter-tweet" align="center" data-width="550" data-lang="en" data-dnt="true" data-theme="light"><p lang="es" dir="ltr">Martín Vizcarra: &quot;Existen 16 regiones que tienen un factor de contagio menor a 1&quot;. El factor RT es un indicador importante para los gobiernos que determinan decisiones en la salud pública como el levantamiento de la cuarentena y otros ► <a href="https://t.co/nTjsPIAGUb">https://t.co/nTjsPIAGUb</a> <a href="https://t.co/KGq1UPP11E">pic.twitter.com/KGq1UPP11E</a></p>&mdash; Canal N (@canalN_) <a href="https://twitter.com/canalN_/status/1281000171392958467?ref_src=twsrc%5Etfw">July 8, 2020</a></blockquote>
+
+<p><br>
+Como muchas otras de las decisiones del señor Vizcarra, esta mostró ser equivocada. El país procedería a pasar por el peor momento de la pandemia en el 2020 aproximadamente un mes y medio después de su anuncio. Sin embargo, aunque la decisión no fuese la correcta, al menos uno de sus criterios sí lo era. El número de reproducción o factor de contagio (<span class="math inline">\(R_{t}\)</span>), es comúnmente utilizado para reflejar qué tan infecciosa es una enfermedad en un momento del tiempo. Por ello, se usa este indicador para evaluar medidas para mitigar una epidemia/pandemia, porque cambia frente a medidas de control.</p>
+<p>En este breve artículo, presentaré la estimación del factor de contagio <span class="math inline">\(R_{t}\)</span> para la primera ola de COVID-19 en el Perú, siguiendo el ejemplo y código de <a href="https://tomvladeck.com/2020/04/15/rt-ssm.html">Thomas P. Vladeck</a>. Al igual que él, debo aclarar que no soy epidemiólogo, así que me limito a estimar <a href="https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0002185#ack">un modelo ya existente</a><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Utilizaremos R, y echaremos mano del paquete <a href="https://cran.r-project.org/web/packages/KFAS/index.html">KFAS</a>.</p>
+<div id="la-teoría" class="section level1">
+<h1>La teoría</h1>
+<p><br>
+Partimos de la siguiente ecuación, tomada del paper de <a href="https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0002185#ack">Bettencourt y Ribeiro (2008)</a></p>
+<p><span class="math display">\[I_{t+\tau}=I_{t}e^{\tau\gamma(R_{t}-1)}\]</span>
+En donde:</p>
+<ul>
+<li><span class="math inline">\(I_{t}\)</span> es el número de personas contagiadas en el periodo <span class="math inline">\(t\)</span></li>
+<li><span class="math inline">\(\tau\)</span> es la distancia en el tiempo</li>
+<li><span class="math inline">\(\gamma\)</span> es el inverso del periodo de aparición de síntomas de la enfermedad</li>
+<li><span class="math inline">\(R_{t}\)</span> es el factor de contagio</li>
+</ul>
+<p>¿Qué nos dice esta ecuación? Que el <span class="math inline">\(R\)</span> varía con el tiempo, y que es una función de la relación entre la cantidad de casos detectados hoy y los de hace <span class="math inline">\(\tau\)</span> días. Si esta expresión te parece familiar, probablemente hayas llevado algun curso de finanzas alguna vez en tu vida. La explicación es que la ecuación anterior es muy similar a la del interés compuesto en tiempo continuo<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>. Haciendo este paralelo, podemos entender la parte <span class="math inline">\(\gamma(R_{t}-1)\)</span> como una tasa de interés, que a partir de ahora llamaremos <span class="math inline">\(\theta_{t}\)</span>.</p>
+<p>El principal problema con la variable <span class="math inline">\(I_{t}\)</span> es que no la podemos observar. Lo único que podemos ver es la cantidad de casos nuevos reportados a través de pruebas con resultado positivo (en este caso, de COVID-19).</p>
+</div>
+<div id="el-modelo-empírico" class="section level1">
+<h1>El modelo empírico</h1>
+<p>La pregunta ahora es, ¿Cómo estimamos la ecuación anterior? Quizá una aproximación correcta sea partir de utilizar una distribución <em>poisson</em>. Esta distribución <a href="https://en.wikipedia.org/wiki/Poisson_distribution">es utilizada</a> para modelar datos de conteo, es decir, el número de veces que ocurre cierto fenómeno aleatorio en un periodo de tiempo. Es adecuada para este caso.</p>
+<p>Utilizando esta información, diremos que <span class="math inline">\(I_{t+1}\)</span> se distribuye como una <em>poisson</em> con parámetro <span class="math inline">\(I_{t}e^{\theta_{t}}\)</span> <a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>, o</p>
+<p><span class="math display">\[I_{t+1} \sim Poisson(I_{t}e^{\theta_{t}})\]</span></p>
+<p>en donde <span class="math inline">\(\theta_{t}\)</span> representa la tasa esperada de crecimiento de contagios. Dado nuestro modelo, establecemos que <span class="math inline">\(\theta_{t}=\gamma(R_{t}-1)\)</span>, que quiere decir que <span class="math inline">\(\theta_{t}\)</span> depende del factor de contagio <span class="math inline">\(R_{t}\)</span>. Si logramos estimar <span class="math inline">\(\theta_{t}\)</span>, será posible despejar y hallar <span class="math inline">\(R_{t}\)</span>. Sin embargo, una <em>regresión poisson</em> regular estima un <span class="math inline">\(\theta\)</span> constante, lo cual no nos permitiría identificar como cambia el <span class="math inline">\(R\)</span> con el tiempo, que es nuestro objetivo.</p>
+<p>Por ello, modelamos la dinámica de la variable <span class="math inline">\(\theta_{t}\)</span> a través de la siguiente expresión:</p>
+<p><span class="math display">\[\theta_{t}\sim N(\theta_{t-1},\sigma)\]</span>
+Las últimas dos ecuaciones conforman nuestro modelo de espacio-estado, que procederemos a estimar más adelante.</p>
+</div>
+<div id="los-datos" class="section level1">
+<h1>Los datos</h1>
+<p>Estimaremos el modelo anterior utilizando <a href="https://www.datosabiertos.gob.pe/dataset/casos-positivos-por-covid-19-ministerio-de-salud-minsa">datos del Ministerio de Salud</a>. La discusión sobre qué serie es mejor utilizar y la calidad de los datos no es trivial, pero excede el propósito de este ejercicio.</p>
+<p>Cargamos los paquetes necesarios:</p>
+<pre class="r"><code>library(tidyverse)
+library(KFAS) # Estimación del modelo
+library(zoo) # Algunas funciones</code></pre>
+<p>Descargamos y leemos la base:</p>
+<pre class="r"><code># URL del archivo a descargar
+url &lt;- &quot;https://cloud.minsa.gob.pe/s/Y8w3wHsEdYQSZRp/download&quot;
+# Nombre del archivo de destino
+destfile &lt;- &quot;./base.csv&quot;
+
+# Descargamos la base
+tryCatch(download.file(url, destfile, mode = &quot;wb&quot;, quiet = FALSE), 
+         error = function(e) print(&quot;Error en la descarga&quot;),
+         cacheOK = F)
+
+# Leemos la base
+dat &lt;- read.csv(&quot;./base.csv&quot;, sep = &quot;;&quot;)</code></pre>
+<p>La base contiene 1 653 320 filas y 9 columnas. Cada una de las observaciones de la base representa una prueba COVID-19 con resultado positivo y contiene el registro de la fecha en la que se reveló el resultado, tipo de prueba, entre otras cosas.</p>
+<p>Contaremos los casos por día, tomando como referencia la fecha del resultado. Además, calcularemos los casos acumulados. Descartamos los últimos 3 días (pues la información podría no estar actualizada en su totalidad) y guardamos el resultado en el objeto <code>df</code>.</p>
+<pre class="r"><code>df &lt;- dat %&gt;% 
+        select(FECHA_RESULTADO) %&gt;% # Modificamos el formato de la fecha
+        mutate(FECHA_RESULTADO = as.character(FECHA_RESULTADO),
+                     fecha = as.Date(paste0(substr(FECHA_RESULTADO,1,4), &quot;-&quot;,
+                                            substr(FECHA_RESULTADO,5,6), &quot;-&quot;,
+                                            substr(FECHA_RESULTADO,7,8)))) %&gt;%
+        count(fecha) %&gt;% # Contamos el número de casos por día
+        filter(fecha &lt; as.Date(&quot;2020-12-31&quot;)) %&gt;% # Sólo hasta diciembre
+        mutate(acum = cumsum(n)) %&gt;% # Calculamos el acumulado
+        head(-3) # Quitamos los últimos 3 días</code></pre>
+<p>Echemos un vistazo a los datos:</p>
+<div class="figure" style="text-align: center"><span id="fig:unnamed-chunk-5"></span>
+<img src="plot1.png" alt="Nuevos casos reportados durante la primera ola" width="750" />
+<p class="caption">
+Figure 1: Nuevos casos reportados durante la primera ola
+</p>
+</div>
+<p><br>
+Muy bien. La serie suavizada representa bien el comportamiento de la pandemia durante el 2020, y tiene una importante relación con las muertes diarias reportadas por SINADEF.</p>
+<p>Antes de seguir, unas cuantas líneas de procesamiento adicional de las series.</p>
+<pre class="r"><code>serie &lt;- df %&gt;% 
+        pull(acum) %&gt;% 
+        diff %&gt;% 
+        {c(rep(0, ventana-1), .)} %&gt;% 
+        rollsum(., ventana) # Rearmamos la serie de contagios acumulados para que                                  considere los nuevos casos en la ventana de 15 días
+
+fechas &lt;- df %&gt;% pull(fecha) %&gt;% tail(-2) # Acomodamos el vector de fechas</code></pre>
+<p>Armemos las dos series de la ecuación de espacio de nuestro modelo, <span class="math inline">\(I_{t}\)</span> (<code>it</code>) y <span class="math inline">\(I_{t+1}\)</span> (<code>it1</code>)</p>
+<pre class="r"><code>it = serie[-length(serie)]
+it1 = serie[-1]</code></pre>
+<p>Listo. Procedamos a la estimación.</p>
+</div>
+<div id="estimación" class="section level1">
+<h1>Estimación</h1>
+<p>Definamos algunos parámetros. La ventana de suavizamiento de los datos será de 15 días y el intervalo serial tendrá un valor de 4 (siguiendo <a href="http://systrom.com/blog/the-metric-we-need-to-manage-covid-19/?fbclid=IwAR0BpVPn0PlcaIrw5v58BiUB9MAGQ4zqpIw1RD24z-q9_nsNLBt2In-OJxc">la estimación de Kevin Systrom</a>). El <span class="math inline">\(\gamma\)</span> es el inverso del intervalo serial.</p>
+<pre class="r"><code>ventana &lt;- 15
+intervalo &lt;- 4
+gamma &lt;- 1/intervalo</code></pre>
+<p>Utilizando la función <code>SSModel()</code> del paquete <code>KFAS</code>, definimos nuestro modelo a estimar, especificando el factor de <em>offset</em> ($I_{t}) y la distribución (<em>Poisson</em>)</p>
+<pre class="r"><code>modelo = SSModel(
+        it1 ~ 1, 
+        u = it,
+        distribution = &quot;poisson&quot;
+)</code></pre>
+<p>Procedemos a estimar el parámetro <span class="math inline">\(\sigma\)</span> de la ecuación de estado de nuestro modelo. Con las siguientes líneas, estimamos <span class="math inline">\(\sigma\)</span> utilizando una estimación por máximo de verosimilitud.</p>
+<pre class="r"><code>modelo$Q[1,1,1] = NA
+
+modelo_fit = fitSSM(modelo, c(1,1))</code></pre>
+<p>Una vez realizado esto, podemos filtrar recursivamente y suavizar <span class="math inline">\(\theta\)</span></p>
+<pre class="r"><code>modelo_fit_filtered = KFS(
+        modelo_fit$model, c(&quot;state&quot;, &quot;mean&quot;), c(&quot;state&quot;, &quot;mean&quot;))</code></pre>
+<p>En este punto, es útil comparar nuestra serie estimada de contagios diarios (celeste) con los datos reales (rojo). Notamos que las series son muy similares, lo que debería dejarnos satisfechos con el desempeño del modelo.</p>
+<div class="figure" style="text-align: center"><span id="fig:unnamed-chunk-12"></span>
+<img src="plot2.png" alt="Nuevos casos estimados vs datos reales" width="750" />
+<p class="caption">
+Figure 2: Nuevos casos estimados vs datos reales
+</p>
+</div>
+</div>
+<div id="hallando-r_t" class="section level1">
+<h1>Hallando <span class="math inline">\(R_{t}\)</span></h1>
+<p>Extraemos los estimados de <span class="math inline">\(\theta\)</span>, además de intervalos de confianza al 95% (tomando los valores de la distribución normal), en un <em>tibble</em>. Asimismo, descartamos las tres primeras observaciones.</p>
+<pre class="r"><code>theta &lt;- tibble(promedio = modelo_fit_filtered$a[, 1],
+                superior = promedio + 1.96*sqrt(modelo_fit_filtered$P[1,1,]),
+                inferior = promedio - 1.96*sqrt(modelo_fit_filtered$P[1,1,])) %&gt;%
+        tail(-2)</code></pre>
+<p>Una vez obtenido el <span class="math inline">\(\theta_{t}\)</span>, utilizamos la igualdad <span class="math inline">\(\theta_{t}=\gamma(R_{t}-1)\)</span>
+para despejar y obtener <span class="math inline">\(R_{t}\)</span>. Sencillamente calculamos <code>{r} rt &lt;- theta/gamma + 1</code></p>
+<p>¡Listo! podemos ahora graficar nuestro <span class="math inline">\(R_{t}\)</span> estimado junto con sus respectivos intervalos de confianza.</p>
+<div class="figure" style="text-align: center"><span id="fig:unnamed-chunk-14"></span>
+<img src="plot3.png" alt="Factor de contagio estimado" width="750" />
+<p class="caption">
+Figure 3: Factor de contagio estimado
+</p>
+</div>
+</div>
+<div id="conclusiones" class="section level1">
+<h1>Conclusiones</h1>
+<p>En este breve artículo, hemos desarrollado algunos conceptos sobre el famoso <strong>factor de contagio</strong> o <strong>número de reproducción</strong> que tanto afecta hoy en día nuestras vidas, y hemos realizado un ejercicio de estimación del mismo para el caso peruano utilizando R.</p>
+<p>Nuestras estimaciones son relativamente similares a algunas de las presentadas por <a href="https://www.bcrp.gob.pe/docs/Publicaciones/Revista-Moneda/moneda-184/moneda-184-08.pdf">Vega y Lahura (2020)</a>. Observamos un <span class="math inline">\(R_{t}\)</span> superior a 2 durante el inicio de la pandemia, que se fue reduciendo conforme hicieron efecto las medidas de contención del virus. A partir del mes de mayo, los intervalos de confianza no nos permiten afirmar mucho sobre el comportamiento del <span class="math inline">\(R_{t}\)</span>, pero en general observamos un aumento por encima de 1 durante septiembre-agosto, que fue el pico de la pandemia en el 2020.</p>
+<p>Evidentemente, nada de lo aquí presentado debe tomarse como evidencia cienfífica ni nada por el estilo. Es realizado con fines meramente explicativos y pedagógicos. ¿Cómo podemos mejorar esta estimación? En primer lugar, podemos dudar sobre la calidad de nuestros datos. La gestión del testeo masivo fue (y sigue siendo) muy deficiente por parte del gobierno peruano. Las pocas pruebas diarias aplicadas y la amplia dominancia de pruebas rápidas por sobre las moleculares se encuentran entre los factores que contribuyen a que estos datos no reflejen el verdadero número de contagiados como deberia. Algunas otras consideraciones sobre el modelo y posibles extensiones pueden ser halladas en la publicación de <a href="https://tomvladeck.com/2020/04/15/rt-ssm.html">Thomas P. Vladeck</a>.</p>
+<p>Cualquier comentario o crítica es siempre bien recibido.</p>
+<p><strong>¡Hasta la próxima!</strong></p>
+<p><br></p>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>No existe una sola manera “correcta” de estimar este factor. Los epidemiólogos han desarrollado diversos modelos teóricos y empíricos a lo largo de los años.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p><span class="math inline">\(valorfinal=valorinicial*e^{ti}\)</span>, en donde <span class="math inline">\(t\)</span> es el tiempo e <span class="math inline">\(i\)</span> es la tasa de interés<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>Asumimos <span class="math inline">\(\tau=1\)</span>, es decir, la relación es entre los contagiados de hoy y los de mañana.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

@@ -1,0 +1,11 @@
+# Font style metadata
+name = "my_fonts"
+
+# Optional Google font URL
+google_fonts = "Fira+Code|Inter|Signika:wght@600|Karla|DM+Mono|Work+Sans|Calistoga|Rubik"
+
+# Font families
+heading_font = "Signika"
+body_font = "Inter"
+nav_font = "Karla"
+mono_font = "DM Mono"

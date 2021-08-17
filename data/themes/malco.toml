@@ -1,0 +1,20 @@
+# Theme metadata
+name = "malco"
+
+# Is theme light or dark?
+light = true
+
+# Primary
+primary = "#556B2F"
+primary_light = "#0072B2"
+primary_dark = "#000000" 
+
+# Menu
+menu_primary = "#F0F8FF"
+menu_text = "#8FBC8B"
+menu_text_active = "#556B2F"
+menu_title = "#556B2F"
+
+# Home sections
+home_section_odd = "rgb(240, 248, 255)"
+home_section_even = "rgb(255, 255, 255)"
